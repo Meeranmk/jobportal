@@ -1,22 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import {
-  MapPin,
-  Globe,
-  Clock,
-  DollarSign,
-  Building2,
-  Wifi,
-  ChevronRight,
-  CheckCircle,
-  Bookmark,
-  Share2,
-  Briefcase,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { ChevronRight, Briefcase } from "lucide-react";
 import { JobCard } from "@/components/job-card";
-import { featuredJobs, categories, formatSalary, timeAgo } from "@/lib/data";
+import { SingleJobView } from "@/components/single-job-view";
+import { featuredJobs, categories } from "@/lib/data";
 
 interface PageProps {
   params: Promise<{ slug: string }>;
@@ -29,7 +17,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const category = categories.find((c) => c.slug === slug);
   if (category) {
     return {
-      title: `${category.label} Jobs`,
+      title: `${category.label} Jobs | Anikaay`,
       description: `Browse ${category.count.toLocaleString()} ${category.label} job listings on Anikaay.`,
       alternates: { canonical: `https://anikaay.online/jobs/${slug}` },
     };
@@ -39,13 +27,18 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const job = featuredJobs.find((j) => j.slug === slug);
   if (job) {
     return {
-      title: `${job.title} at ${job.company}`,
-      description: job.description,
+      title: `${job.title} at ${job.company} (${job.locationDetails.city}, ${job.locationDetails.state})`,
+      description: `${job.description.slice(0, 160)}... Apply now for ${job.title} at ${job.company}. Job ID: ${job.id}`,
       alternates: { canonical: `https://anikaay.online/jobs/${slug}` },
+      openGraph: {
+        title: `${job.title} - ${job.company}`,
+        description: job.description,
+        type: "article",
+      },
     };
   }
 
-  return { title: "Not Found" };
+  return { title: "Not Found | Anikaay" };
 }
 
 export default async function JobSlugPage({ params }: PageProps) {
@@ -81,9 +74,9 @@ export default async function JobSlugPage({ params }: PageProps) {
         </div>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
           {jobs.length > 0 ? (
-            <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               {jobs.map((job) => (
-                <JobCard key={job.id} job={job} variant="default" />
+                <JobCard key={job.id} job={job} variant="grid" />
               ))}
             </div>
           ) : (
@@ -107,10 +100,15 @@ export default async function JobSlugPage({ params }: PageProps) {
   const job = featuredJobs.find((j) => j.slug === slug);
   if (!job) notFound();
 
-  // JSON-LD JobPosting schema
+  // JSON-LD JobPosting schema including all fields
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "JobPosting",
+    identifier: {
+      "@type": "PropertyValue",
+      name: job.company,
+      value: job.id,
+    },
     title: job.title,
     description: job.description,
     datePosted: job.postedAt,
@@ -123,25 +121,33 @@ export default async function JobSlugPage({ params }: PageProps) {
     },
     jobLocation: {
       "@type": "Place",
-      address: { "@type": "PostalAddress", addressLocality: job.location },
+      address: {
+        "@type": "PostalAddress",
+        addressLocality: job.locationDetails.city,
+        addressRegion: job.locationDetails.state,
+        addressCountry: job.locationDetails.country,
+      },
     },
     ...(job.locationType === "remote" && { jobLocationType: "TELECOMMUTE" }),
-    ...(job.salaryMin && {
-      baseSalary: {
-        "@type": "MonetaryAmount",
-        currency: job.salaryCurrency ?? "USD",
-        value: {
-          "@type": "QuantitativeValue",
-          minValue: job.salaryMin,
-          maxValue: job.salaryMax,
-          unitText: "YEAR",
-        },
+    baseSalary: {
+      "@type": "MonetaryAmount",
+      currency: job.salaryCurrency ?? "USD",
+      value: {
+        "@type": "QuantitativeValue",
+        minValue: job.salaryMin,
+        maxValue: job.salaryMax,
+        unitText: job.salaryPeriod === "monthly" ? "MONTH" : "YEAR",
       },
-    }),
+    },
+    qualifications: job.requiredQualifications.join(". "),
+    responsibilities: job.responsibilities.join(". "),
+    skills: [...job.skills.technical, ...job.skills.industry].join(", "),
+    educationRequirements: job.education,
+    experienceRequirements: job.experienceLevel,
   };
 
   const relatedJobs = featuredJobs
-    .filter((j) => j.id !== job.id && j.categorySlug === job.categorySlug)
+    .filter((j) => j.id !== job.id && (j.categorySlug === job.categorySlug || j.industry === job.industry))
     .slice(0, 3);
 
   return (
@@ -150,178 +156,7 @@ export default async function JobSlugPage({ params }: PageProps) {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
-      <div className="min-h-screen pt-20">
-        {/* Breadcrumb */}
-        <div className="bg-background-subtle border-b border-border py-4 px-4 sm:px-6 lg:px-8">
-          <div className="max-w-5xl mx-auto">
-            <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Link href="/" className="hover:text-foreground transition-colors">Home</Link>
-              <ChevronRight className="w-3 h-3" />
-              <Link href="/jobs" className="hover:text-foreground transition-colors">Jobs</Link>
-              <ChevronRight className="w-3 h-3" />
-              <Link href={`/jobs/${job.categorySlug}`} className="hover:text-foreground transition-colors">
-                {job.category}
-              </Link>
-              <ChevronRight className="w-3 h-3" />
-              <span className="text-foreground font-medium truncate">{job.title}</span>
-            </nav>
-          </div>
-        </div>
-
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* Main content */}
-            <article className="lg:col-span-2" aria-label="Job details">
-              <div className="flex items-start gap-5 mb-8">
-                <div className="w-16 h-16 rounded-2xl bg-gradient-subtle border border-border flex items-center justify-center text-2xl font-bold flex-shrink-0">
-                  {job.company[0]}
-                </div>
-                <div className="flex-1">
-                  {job.featured && (
-                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-gradient-hero text-white mb-2">
-                      ⭐ Featured
-                    </span>
-                  )}
-                  <h1 className="font-heading text-2xl sm:text-3xl font-bold text-foreground mb-1">
-                    {job.title}
-                  </h1>
-                  <Link href={`/companies/${job.companySlug}`} className="text-primary hover:underline font-medium">
-                    {job.company}
-                  </Link>
-                </div>
-              </div>
-
-              {/* Meta */}
-              <div className="flex flex-wrap gap-3 mb-8 pb-8 border-b border-border">
-                <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                  <MapPin className="w-4 h-4" />{job.location}
-                </span>
-                <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                  {job.locationType === "remote" ? <Globe className="w-4 h-4" /> :
-                   job.locationType === "hybrid" ? <Wifi className="w-4 h-4" /> :
-                   <Building2 className="w-4 h-4" />}
-                  {job.locationType.charAt(0).toUpperCase() + job.locationType.slice(1)}
-                </span>
-                <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                  <Briefcase className="w-4 h-4" />{job.type.replace("-", " ")}
-                </span>
-                {(job.salaryMin || job.salaryMax) && (
-                  <span className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
-                    <DollarSign className="w-4 h-4 text-primary" />
-                    {formatSalary(job.salaryMin, job.salaryMax)}
-                  </span>
-                )}
-                <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                  <Clock className="w-4 h-4" />{timeAgo(job.postedAt)}
-                </span>
-              </div>
-
-              {/* Tags */}
-              <div className="flex flex-wrap gap-2 mb-8">
-                {job.tags.map((tag) => (
-                  <span key={tag} className="px-3 py-1.5 rounded-lg bg-muted border border-border text-xs font-medium text-muted-foreground hover:border-primary/40 transition-all">
-                    {tag}
-                  </span>
-                ))}
-              </div>
-
-              <section className="mb-8" aria-labelledby="job-desc-heading">
-                <h2 id="job-desc-heading" className="font-heading font-bold text-lg text-foreground mb-3">About this role</h2>
-                <p className="text-muted-foreground leading-relaxed">{job.description}</p>
-              </section>
-
-              <section className="mb-8" aria-labelledby="responsibilities-heading">
-                <h2 id="responsibilities-heading" className="font-heading font-bold text-lg text-foreground mb-4">What you'll do</h2>
-                <ul className="space-y-3">
-                  {job.responsibilities.map((r, i) => (
-                    <li key={i} className="flex items-start gap-3 text-muted-foreground">
-                      <CheckCircle className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />{r}
-                    </li>
-                  ))}
-                </ul>
-              </section>
-
-              <section aria-labelledby="requirements-heading">
-                <h2 id="requirements-heading" className="font-heading font-bold text-lg text-foreground mb-4">What we're looking for</h2>
-                <ul className="space-y-3">
-                  {job.requirements.map((r, i) => (
-                    <li key={i} className="flex items-start gap-3 text-muted-foreground">
-                      <CheckCircle className="w-4 h-4 text-emerald-500 flex-shrink-0 mt-0.5" />{r}
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            </article>
-
-            {/* Sidebar */}
-            <aside className="lg:col-span-1" aria-label="Application sidebar">
-              <div className="sticky top-24 space-y-4">
-                <div className="rounded-2xl border border-border bg-card p-6 shadow-lg shadow-primary/5">
-                  <h2 className="font-heading font-bold text-base text-foreground mb-4">Apply for this role</h2>
-                  {job.salaryMin && (
-                    <div className="mb-4 p-3 rounded-xl bg-primary/5 border border-primary/15">
-                      <p className="text-xs text-muted-foreground mb-0.5">Estimated salary</p>
-                      <p className="font-heading font-bold text-lg text-foreground">
-                        {formatSalary(job.salaryMin, job.salaryMax)}
-                      </p>
-                      <p className="text-xs text-muted-foreground">per year</p>
-                    </div>
-                  )}
-                  <Link href={`/jobs/${job.slug}/apply`}>
-                    <Button
-                      id={`apply-now-${job.id}`}
-                      size="lg"
-                      className="w-full bg-gradient-hero text-white font-bold hover:opacity-90 shadow-lg shadow-primary/25 mb-3"
-                    >
-                      Apply Now
-                    </Button>
-                  </Link>
-                  <div className="flex gap-2">
-                    <Button id={`save-job-detail-${job.id}`} variant="outline" size="sm" className="flex-1 gap-1.5">
-                      <Bookmark className="w-3.5 h-3.5" /> Save
-                    </Button>
-                    <Button id={`share-job-${job.id}`} variant="outline" size="sm" className="flex-1 gap-1.5">
-                      <Share2 className="w-3.5 h-3.5" /> Share
-                    </Button>
-                  </div>
-                </div>
-
-                <Link href={`/companies/${job.companySlug}`}
-                  className="group block rounded-2xl border border-border bg-card p-5 hover:border-primary/30 transition-all duration-200">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-gradient-subtle border border-border flex items-center justify-center text-base font-bold">
-                      {job.company[0]}
-                    </div>
-                    <div>
-                      <p className="font-semibold text-sm text-foreground group-hover:text-primary transition-colors">{job.company}</p>
-                      <p className="text-xs text-muted-foreground">View company profile →</p>
-                    </div>
-                  </div>
-                </Link>
-
-                {relatedJobs.length > 0 && (
-                  <div className="rounded-2xl border border-border bg-card p-5">
-                    <h3 className="font-semibold text-sm text-foreground mb-3">Similar roles</h3>
-                    <div className="space-y-2">
-                      {relatedJobs.map((j) => (
-                        <Link key={j.id} href={`/jobs/${j.slug}`} className="flex items-center gap-2.5 py-2 group">
-                          <div className="w-7 h-7 rounded-lg bg-muted border border-border flex items-center justify-center text-xs font-bold flex-shrink-0">
-                            {j.company[0]}
-                          </div>
-                          <div className="min-w-0">
-                            <p className="text-xs font-medium text-foreground group-hover:text-primary transition-colors truncate">{j.title}</p>
-                            <p className="text-[10px] text-muted-foreground">{j.company}</p>
-                          </div>
-                        </Link>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </aside>
-          </div>
-        </div>
-      </div>
+      <SingleJobView job={job} relatedJobs={relatedJobs} />
     </>
   );
 }
